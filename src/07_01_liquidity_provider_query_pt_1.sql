@@ -35,7 +35,7 @@ SELECT
     ,block_number
     ,log_index
     -- one pair has liquidity tokens that overflow. This normalizes pool shares for just that pair
-    ,-1 * CAST(CASE WHEN pair='0x009211344ee05ff3f69d9aadf0d3a0ab099c5363' THEN SUBSTR(`value`,0,LENGTH(`value`)-3) ELSE `value` END AS NUMERIC) AS delta_pool_shares
+    ,-1 * CAST(SUBSTR(`value`,0,GREATEST(1, LENGTH(`value`) - 3)) AS NUMERIC) AS delta_pool_shares
     ,from_address AS address
     ,"Transfer" as event
     ,pair
@@ -47,7 +47,7 @@ SELECT
     ,block_number
     ,log_index
     -- one pair has liquidity tokens that overflow. This normalizes pool shares for just that pair
-    ,CAST(CASE WHEN pair='0x009211344ee05ff3f69d9aadf0d3a0ab099c5363' THEN SUBSTR(`value`,0,LENGTH(`value`)-3) ELSE `value` END AS NUMERIC) AS delta_pool_shares
+    ,CAST(SUBSTR(`value`,0,GREATEST(1, LENGTH(`value`) - 3)) AS NUMERIC) AS delta_pool_shares
     ,to_address AS address
     ,"Transfer" as event
     ,pair
@@ -57,7 +57,8 @@ FROM v1_transfers)
 ,overflowing_pairs AS
 (SELECT DISTINCT pair
 FROM uniswap_v2_syncs
-WHERE LENGTH(reserve0) > 29 OR LENGTH(reserve1) > 29)
+WHERE LENGTH(reserve0) > 26 OR LENGTH(reserve1) > 26)
+
 
 ,deltas_v2 AS
 (
@@ -176,10 +177,10 @@ FROM with_end_dates
 )
 , with_aggregates AS (
 SELECT *
-      ,SUM(delta_eth) OVER (PARTITION BY token0_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_weth_balance_token0
-      ,SUM(weth_pair_other_token_delta) OVER (PARTITION BY token0_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_other_token_balance_token0
-      ,SUM(delta_eth) OVER (PARTITION BY token1_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_weth_balance_token1
-      ,SUM(weth_pair_other_token_delta) OVER (PARTITION BY token1_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_other_token_balance_token1
+      ,SUM(delta_eth / 1e12) OVER (PARTITION BY token0_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_weth_balance_token0
+      ,SUM(weth_pair_other_token_delta / 1e12) OVER (PARTITION BY token0_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_other_token_balance_token0
+      ,SUM(delta_eth / 1e12) OVER (PARTITION BY token1_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_weth_balance_token1
+      ,SUM(weth_pair_other_token_delta / 1e12) OVER (PARTITION BY token1_or_other_token ORDER BY block_timestamp, log_index) AS weth_pair_other_token_balance_token1
       ,(token0='0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' OR token1='0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2') AS is_weth_pair
 FROM with_weth_deltas
 )
@@ -206,9 +207,9 @@ FROM with_aggregates
 FROM with_index
 )
 ,with_total_supplies AS (SELECT *
-      ,SUM(CASE WHEN address='0x0000000000000000000000000000000000000000' THEN -delta_pool_shares ELSE 0 END) OVER (PARTITION BY pair ORDER BY block_timestamp, log_index, delta_pool_shares) as total_supply
-      ,SUM(delta_eth) OVER (PARTITION BY pair ORDER BY block_timestamp, log_index, delta_pool_shares) as eth_balance
-      ,SUM(linking_token_in_secondary_pairs_delta) OVER (PARTITION BY pair ORDER BY block_timestamp, log_index, delta_pool_shares) as linking_token_balance
+      ,SUM(CASE WHEN address='0x0000000000000000000000000000000000000000' THEN -delta_pool_shares / 1e12 ELSE 0 END) OVER (PARTITION BY pair ORDER BY block_timestamp, log_index, delta_pool_shares) as total_supply
+      ,SUM(delta_eth / 1e12) OVER (PARTITION BY pair ORDER BY block_timestamp, log_index, delta_pool_shares) as eth_balance
+      ,SUM(linking_token_in_secondary_pairs_delta / 1e12) OVER (PARTITION BY pair ORDER BY block_timestamp, log_index, delta_pool_shares) as linking_token_balance
 FROM with_more_deltas
 )
 , with_zeroed AS (
@@ -224,16 +225,16 @@ SELECT *
 FROM with_zeroed
 )
 , with_more_aggregates AS (SELECT *
-      ,SUM(adjusted_linking_token_in_secondary_pairs_delta) OVER (PARTITION BY linking_token ORDER BY block_timestamp, log_index) AS token_in_secondary_pairs
-      ,SUM(weth_in_weth_pair_delta) OVER (PARTITION BY linking_token ORDER BY block_timestamp, log_index, delta_pool_shares) AS weth_in_primary_pair
-      ,SUM(linking_token_in_weth_pair_delta) OVER (PARTITION BY linking_token ORDER BY block_timestamp, log_index, delta_pool_shares) AS token_in_primary_pair
+      ,SUM(adjusted_linking_token_in_secondary_pairs_delta / 1e12) OVER (PARTITION BY linking_token ORDER BY block_timestamp, log_index) AS token_in_secondary_pairs
+      ,SUM(weth_in_weth_pair_delta / 1e12) OVER (PARTITION BY linking_token ORDER BY block_timestamp, log_index, delta_pool_shares) AS weth_in_primary_pair
+      ,SUM(linking_token_in_weth_pair_delta / 1e12) OVER (PARTITION BY linking_token ORDER BY block_timestamp, log_index, delta_pool_shares) AS token_in_primary_pair
 FROM with_adjusted_deltas),
 with_prices AS (
 SELECT *
        -- FILTER OUT SECONDARY PAIRS WHEN PRIMARY PAIR HAS LOW LIQUIDITY
        -- THIS NUMBER SHOULD BE AT LEAST 1 ETH (10^18) TO AVOID SOME CASES THAT ACTUALLY OVERFLOW
        -- THE RIGHT NUMBER MAY BE MUCH HIGHER
-      ,CASE WHEN weth_in_primary_pair < (POWER(10,18)) THEN 0
+      ,CASE WHEN weth_in_primary_pair < (POWER(10,30)) THEN 0
        -- AVOID DIVISION BY 0
             WHEN token_in_primary_pair=0 THEN 0
             ELSE (weth_in_primary_pair / token_in_primary_pair)
