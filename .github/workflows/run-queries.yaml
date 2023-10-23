@@ -8,11 +8,10 @@ jobs:
   create-dataset:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-        with:
-          Default: ${{ github.repository }}
+      - uses: actions/checkout@v2
+
       - name: Setup gcloud SDK
-        uses: GoogleCloudPlatform/github-actions/setup-gcloud@main
+        uses: google-github-actions/setup-gcloud@master
         with:
           version: '309.0.0'
           project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -53,7 +52,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Setup gcloud SDK
-        uses: GoogleCloudPlatform/github-actions/setup-gcloud@master
+        uses: google-github-actions/setup-gcloud@master
         with:
           version: '309.0.0'
           project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -70,4 +69,3 @@ jobs:
           --parameter='user_reward:FLOAT64:400' \
           --parameter='total_reward:FLOAT64:150000000' \
           --nouse_legacy_sql
-
