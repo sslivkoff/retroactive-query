@@ -8,7 +8,7 @@ jobs:
   create-dataset:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Setup gcloud SDK
         uses: GoogleCloudPlatform/github-actions/setup-gcloud@65ed483aa286ae127a49b5b9a0436055eb49d590
@@ -17,9 +17,6 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
-      - uses: actions/checkout@v3
-        with: # Repository name with owner. For example, actions/checkout
-          Default: ${{ github.repository }}
       - name: biquery
         run: |
           bq --location=US mk \
